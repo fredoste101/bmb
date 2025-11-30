@@ -1,6 +1,7 @@
 
-"Current bookmark ID that we can use to move/or alter bookmark
-let g:BMB_currentBookmarkId = -1
+"Save all bufnr that we open with bmb so we can recreate teh state
+"when going back... this is retarded but I don't know else what to do
+let g:BMB_bufferDict = {} 
 
 "What BMB-state are we in? Are we trying to create a new bookmark?
 "Are we altering abookmark, deleting, adding info, moving, etc etc...
@@ -11,18 +12,13 @@ let g:BMB_currentBookmarkId = -1
 
 let s:BMB_state = 0 
 
-"Next ID to use when creating a new bookmark
-let g:BMB_nextBookmarkId = -1
-
-let g:BMB_nextDirId = -1
 
 "The actual bookmark book
 let g:BMB_bookMarkBook = v:none
 
+"TODO: use this to autosave at times. I think it will be replaced by config in
+"bookMarksBook
 let g:BMB_autoSave = v:false
-
-"The current filename of the file to write/read bookmarks to/from
-let g:BMB_fileName = v:none
 
 
 "All previously visited bookmarks. This can be used to go quickly to a
@@ -33,34 +29,43 @@ let g:BMB_previousBookMarksVisited = []
 let s:BMB_rootIndex = 0
 
 
-function! BMB_createBook(fileName, name, baseDir)
+function! BMB_createBook(fileName, name)
 	"Create a bookmark book with name, save in fileName.
-	"baseDir is to keep track of paths in some sort of fashion. lets see
-	"how it plays out
+	"baseDir is to keep track of paths in some sort of fashion. 
+	"lets see how it plays out
 
-	let g:BMB_nextBookmarkId = 0
-	let g:BMB_nextDirId 	 = 1
-
+	"name: Then name of the bmb
+	"created: timestamp when created
+	"modified: timestamp when modified
+	"basedir: base directory from which the rest of bookmarks depend on
+	"	  per default: current working directory
+	"bookmarkDict: dictionary with all bookmarks
+	"dirDict: dictionary with dirs. Each dir contains refs to more dirs or
+	"         bookmarks
+	"nextBookmarkId: ID that a newly bookmark will get
+	"nextDirId: ID that a newly created dir will get
 	let g:BMB_bookMarkBook = {
 					\"name":	   a:name,
 					\"created":	   localtime(), 
 					\"modified":	   localtime(),
-					\"basedir":	   a:baseDir,
+					\"basedir":	   getcwd(),
 					\"bookmarkDict":   {},
 					\"dirDict":	   {},
-					\"nextBookmarkId": g:BMB_nextBookmarkId,
-					\"nextDirId":	   g:BMB_nextDirId
+					\"nextBookmarkId": 0,
+					\"nextDirId":	   1,
+					\"fileName": 	   a:fileName
 				\} 	
 
 	let rootNode = 	 {
+				\"id": 0,
 				\"name":"root", 
 				\"bookmarkIdList":[], 
 				\"dirIdList":[], 
 				\"info":"", 
+				\"rendered":v:false,
 				\"created":localtime(),
 				\"modified":localtime(),
 			\}
-
 
 	let g:BMB_bookMarkBook["dirDict"][string(s:BMB_rootIndex)] = rootNode
 
@@ -69,15 +74,41 @@ function! BMB_createBook(fileName, name, baseDir)
 	call writefile([jsonString], a:fileName)
 
 	"We have our file
-	let g:BMB_fileName 	= a:fileName
 	let s:BMB_state 	= 1 
+
+endfunction
+
+
+function! BMB_saveBook()
+	"Save the book
+	if s:BMB_state == 0
+		echom "ERROR: must initialize BMB first"
+		return	
+	endif
+	
+	call BMB_saveBookAs(g:BMB_bookMarkBook["fileName"])
+endfunction
+
+
+function! BMB_saveBookAs(fileName)
+	"Save the book as fileName
+	if s:BMB_state == 0
+		echom "ERROR: must initialize BMB first"
+		return	
+	endif
+
+	let g:BMB_bookMarkBook["fileName"] = a:filename
+	
+	let jsonString = json_encode(g:BMB_bookMarkBook)	
+
+	call writefile([jsonString], a:fileName)
 
 endfunction
 
 
 function! BMB_init(bookMarkFile)
 	"Initialize the bookmark-book :)
-	let g:BMB_fileName = a:bookMarkFile
+	"With an existing one given by bookMarkFile
 
 	let lines = readfile(a:bookMarkFile)
 
@@ -86,9 +117,6 @@ function! BMB_init(bookMarkFile)
 	let jsonObject = json_decode(jsonString)
 
 	let g:BMB_bookMarkBook = jsonObject
-
-	let g:BMB_nextBookmarkId = jsonObject["nextBookmarkId"]
-	let g:BMB_nextDirId = jsonObject["nextDirId"]
 
 	let s:BMB_state = 1 
 endfunction
@@ -111,26 +139,32 @@ function! BMB_addBookmarkWithParent(parent)
 
 	let string = getline(line) 
 
+	"TODO: how is the file in comparison to baseDir in the bmbook?
+	"TODO: also check that parent exists
+
+	let nextBookmarkId = g:BMB_bookMarkBook["nextBookmarkId"] 
 	"Now create the bookmark
 	let bookmark = 	{
-				\"id":g:BMB_nextBookmarkId, 
+				\"id": nextBookmarkId,
 				\"file":@%,
 				\"line":line,
 				\"column":column,
+				\"name":"",
 				\"info":"",
 				\"dirIdList":[string(a:parent)],
 				\"string":string
 			\} 
 
-	let key = string(g:BMB_nextBookmarkId)
+	let key = string(nextBookmarkId)
 
 	"Link together the new bookmark with the dir it ends up in
 	let g:BMB_bookMarkBook["bookmarkDict"][key] = bookmark
 
-	call add(g:BMB_bookMarkBook["dirDict"][string(a:parent)]["bookmarkIdList"], bookmark["id"])
+	call add(g:BMB_bookMarkBook["dirDict"][string(a:parent)]["bookmarkIdList"], 
+		 \bookmark["id"])
 
 	"Increment the bookmarks
-	let g:BMB_nextBookmarkId += 1
+	let g:BMB_bookMarkBook["nextBookmarkId"] += 1
 
 endfunction
 
@@ -164,8 +198,9 @@ endfunction
 
 function! BMB_gotoBookmark(bookmarkId)
 	"Jump to the given bookmarkId 
+	echo "gotoBookmark"
 	if s:BMB_state == 0
-		echom "ERROR: must be initialized first"
+		echom "ERROR: bmb must be initialized first"
 		return	
 	endif	
 
@@ -190,56 +225,228 @@ endfunction
 function! BMB_addDir(parentId, name, info)
 	"add directory to the bookmarks book
 	
+	let dirId = g:BMB_bookMarkBook["nextDirId"]
+
 	let newDir = 	 {
-				\"id":g:BMB_nextDirId,
-				\"name":a:name, 
-				\"bookmarkIdList":[], 
-				\"dirIdList":[], 
-				\"info":a:info, 
-				\"created":localtime(),
-				\"modified":localtime()
+				\"id":		   dirId,
+				\"name":	   a:name, 
+				\"bookmarkIdList": [], 
+				\"dirIdList":      [], 
+				\"rendered":	   v:false,
+				\"info":	   a:info, 
+				\"created":        localtime(),
+				\"modified":       localtime()
 			\}
 
 	"Add dir to the rest
-	let g:BMB_bookMarkBook["dirDict"][string(g:BMB_nextDirId)] = newDir
+	let g:BMB_bookMarkBook["dirDict"][string(dirId)] = newDir
 
 	"Add the added dir to the parent dir :)
-	call add(g:BMB_bookMarkBook["dirDict"][string(a:parentId)]["dirIdList"], g:BMB_nextDirId)
+	call add(g:BMB_bookMarkBook["dirDict"][string(a:parentId)]["dirIdList"], dirId)
 
-	let g:BMB_nextDirId += 1
-
-endfunction
-
-
-function! s:BMB_printBookmark(bookmark, line, indent)
-
-	call setline(a:line, a:indent . string(a:bookmark["id"]) . " | " . a:bookmark["string"] . " | " . a:bookmark["info"])
+	let g:BMB_bookMarkBook["nextDirId"] += 1
 
 endfunction
 
 
-function! s:BMB_printFullDir(dir, startLine, indent)
+function! s:BMB_renderBookmark(bookmark, line, indent)
+
+	let g:BMB_bookMarkBook["renderedBookmarks"][string(a:line)] = a:bookmark["id"]
+
+	let lineContent = trim(a:bookmark["string"])
+
+	"TODO: also if content is less than 30, fill to 30
+	if strlen(lineContent) > 30
+		let lineContent = strcharpart(lineContent, 0, 30) 	
+	endif
+
+	call setline(a:line, 
+		     \a:indent . string(a:bookmark["id"]) . 
+		     \" | " . lineContent . " | " . a:bookmark["info"])
+
+endfunction
+
+
+function! s:BMB_renderDir(dir, startLine, indent)
+	"TODO: must save the line numbers and such, in order to open.
+	"How to handle closing and opening? that's a future problem
+	
 	let lineNumber = a:startLine
 
-	let dirSpecifierString = "[v] -"
+	let dirSpecifierString = "[d] -"
 
-	call setline(lineNumber, a:indent . dirSpecifierString . " " . a:dir["name"] . " | " . a:dir["info"])
+	call setline(lineNumber, 
+		     \a:indent . 
+		     \dirSpecifierString . " " . a:dir["name"] . " | " . a:dir["info"])
+
+	let g:BMB_bookMarkBook["renderedDirs"][string(lineNumber)] = a:dir
 	
 	let lineNumber += 1
 
+	if !has_key(a:dir,"rendered") || !a:dir["rendered"]
+		"Do not render the bookmarks for this dir if not rendered	
+		return lineNumber
+	end
+
 	for dirId in a:dir["dirIdList"]
 		let subDir = g:BMB_bookMarkBook["dirDict"][string(dirId)]
-		let lineNumber = s:BMB_printFullDir(subDir, lineNumber, a:indent . "  ")
+
+		let lineNumber = s:BMB_renderDir(subDir, 
+						    \lineNumber, 
+						    \a:indent . "  ")
 	endfor
 
 	for bookmarkId in a:dir["bookmarkIdList"]
-		call s:BMB_printBookmark(g:BMB_bookMarkBook["bookmarkDict"][string(bookmarkId)], 
+		call s:BMB_renderBookmark(g:BMB_bookMarkBook["bookmarkDict"][string(bookmarkId)], 
 					 \lineNumber, 
 					 \a:indent . "  ")
 		let lineNumber += 1
 	endfor
 
 	return lineNumber
+endfunction
+
+
+function! s:BMB_openDir(dir)
+	"Open the dir to be rendered. and then rerender
+	let cp = getcurpos()
+
+	let dir = a:dir 
+
+	if has_key(dir, "rendered")
+		if dir["rendered"]
+			"echom "SET TO FALSE: " .. dir["name"]	
+			let dir["rendered"] = v:false	
+		else
+			let dir["rendered"] = v:true	
+		endif
+
+	else
+		let dir["rendered"] = v:true
+
+	endif
+
+	call s:BMB_render()
+
+	call setpos(".", cp)
+endfunction
+
+
+function! BMB_openInBook()
+	"Open either a bookmark (in current buffer)
+	"Or open a directory for viewing
+		
+	let cp = getcurpos()
+
+	let lineString = string(cp[1])
+
+	if has_key(g:BMB_bookMarkBook["renderedBookmarks"], lineString)
+		call BMB_gotoBookmark(g:BMB_bookMarkBook["renderedBookmarks"][lineString])
+
+	elseif has_key(g:BMB_bookMarkBook["renderedDirs"], lineString)
+		call s:BMB_openDir(g:BMB_bookMarkBook["renderedDirs"][lineString])
+	endif
+
+	
+endfunction
+
+
+function! BMB_changeInfoBookmark(id, info)
+	let g:BMB_bookMarkBook["bookmarkDict"][string(a:id)]["info"] = a:info 
+endfunction
+
+function! BMB_changeInfoDir(id, info)
+	let g:BMB_bookMarkBook["dirDict"][string(a:id)]["info"] = a:info 
+endfunction
+
+function! BMB_changeInfoInBook()
+	"Within the book, change info of currently selected element
+	
+	"TODO: What I'd like is to have ability to print the current info...
+	"Or even better, open a separete buffer for it... Right now its poor
+	"mans solution. Lore accurate
+	
+	call inputsave()
+
+	let info = input("info: ")
+
+	call inputrestore()
+
+	let cp = getcurpos()
+
+	let lineString = string(cp[1])
+
+	if has_key(g:BMB_bookMarkBook["renderedBookmarks"], lineString)
+		let bookmarkId = g:BMB_bookMarkBook["renderedBookmarks"][lineString]
+
+		call BMB_changeInfoBookmark(bookmarkId, info)
+
+	elseif has_key(g:BMB_bookMarkBook["renderedDirs"], lineString)
+		let dirId = g:BMB_bookMarkBook["renderedDirs"][lineString]["id"]
+
+		call BMB_changeInfoDir(dirId, info)
+	endif
+
+	call s:BMB_render()
+
+	call setpos(".", cp)
+endfunction
+
+
+function! s:BMB_render()
+	"Render the book. Should be called when filetype is bmb
+	echom "RENDER"
+
+	setlocal filetype=bmb
+	setlocal buftype=nowrite
+	setlocal bufhidden=delete
+	setlocal cursorline
+	setlocal noswapfile
+	setlocal nowrap
+
+	augroup BMB
+		au!
+		nnoremap <buffer> <CR> :call BMB_openInBook()<CR>
+		nnoremap <buffer> i :call BMB_changeInfoInBook()<CR>
+
+		"These are here so we know how to rerender the bmb-buffer later
+		autocmd BufLeave * :call BMB_setBMB() 
+		autocmd BufEnter * :call BMB_checkBMB() 
+		
+		"Some syntax :) I guess this should be in syntax.vim later
+		syntax match BMB_DIR '\[d\]'    
+		highlight BMB_DIR cterm=bold 
+	augroup END
+
+	"Clear the buffer
+	execute "normal ggVGdd"
+
+	let g:BMB_bookMarkBook["renderedBookmarks"] = {}
+	let g:BMB_bookMarkBook["renderedDirs"] 	    = {}
+
+	let root = g:BMB_bookMarkBook["dirDict"][string(s:BMB_rootIndex)]
+
+	setlocal modifiable
+	call s:BMB_renderDir(root, 1, "")
+
+	"setlocal nomodifiable
+endfunction
+
+
+function! BMB_setBMB()
+	if &filetype == "bmb"
+		if !has_key(g:BMB_bufferDict, string(bufnr()))
+			let g:BMB_bufferDict[string(bufnr())] = v:true
+		endif	
+	endif 
+	
+endfunction
+
+
+function! BMB_checkBMB()
+	if has_key(g:BMB_bufferDict, string(bufnr()))
+		call s:BMB_render()
+	endif	
 endfunction
 
 
@@ -252,23 +459,9 @@ function! BMB_openBuffer()
 		return	
 	endif
 
-	:enew
+	:enew 
 
-	setlocal filetype=bmb
-	setlocal buftype=nofile
-
-
-	"TODO: create the hierarchy. We can start by showing it all? and then
-	"we do the hiding, unhiding as a second step :)
-
-	let root = g:BMB_bookMarkBook["dirDict"][string(s:BMB_rootIndex)]
-
-	call s:BMB_printFullDir(root, 1, "")
-
-
-	setlocal nomodifiable
-	setlocal readonly
-	setlocal nowrap
+	call s:BMB_render()
 	
 endfunction
 
