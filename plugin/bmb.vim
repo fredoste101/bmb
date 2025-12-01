@@ -13,6 +13,8 @@ let g:BMB_bufferDict = {}
 let s:BMB_state = 0 
 
 
+let g:BMB_currentOpData = {"op":v:none}
+
 "The actual bookmark book
 let g:BMB_bookMarkBook = v:none
 
@@ -25,9 +27,7 @@ let g:BMB_autoSave = v:false
 "previous place is my thinking... Lets see if it be smart of nah
 let g:BMB_previousBookMarksVisited = []
 
-
 let s:BMB_rootIndex = 0
-
 
 function! BMB_createBook(fileName, name)
 	"Create a bookmark book with name, save in fileName.
@@ -97,7 +97,7 @@ function! BMB_saveBookAs(fileName)
 		return	
 	endif
 
-	let g:BMB_bookMarkBook["fileName"] = a:filename
+	let g:BMB_bookMarkBook["fileName"] = a:fileName
 	
 	let jsonString = json_encode(g:BMB_bookMarkBook)	
 
@@ -109,6 +109,8 @@ endfunction
 function! BMB_init(bookMarkFile)
 	"Initialize the bookmark-book :)
 	"With an existing one given by bookMarkFile
+
+	let g:BMB_currentOpData = {"op":v:none}
 
 	let lines = readfile(a:bookMarkFile)
 
@@ -393,6 +395,25 @@ function! BMB_changeInfoInBook()
 endfunction
 
 
+function! BMB_changePosInBook()
+	let cp = getcurpos()
+
+	let lineString = string(cp[1])
+
+	if has_key(g:BMB_bookMarkBook["renderedBookmarks"], lineString)
+		let bookmarkId = g:BMB_bookMarkBook["renderedBookmarks"][lineString]
+
+		let bookmark = 	g:BMB_bookMarkBook["bookmarkDict"][string(bookmarkId)]
+
+		call popup_notification("Change bookmark: " . bookmarkId, 
+					\{"title":"c", "pos":"topleft"})	
+
+		let g:BMB_currentOpData = {"op":"changeBookmark", "bookmark":bookmark} 
+	endif
+
+endfunction
+
+
 function! s:BMB_render()
 	"Render the book. Should be called when filetype is bmb
 	echom "RENDER"
@@ -408,10 +429,11 @@ function! s:BMB_render()
 		au!
 		nnoremap <buffer> <CR> :call BMB_openInBook()<CR>
 		nnoremap <buffer> i :call BMB_changeInfoInBook()<CR>
+		nnoremap <buffer> c :call BMB_changePosInBook()<CR>
 
 		"These are here so we know how to rerender the bmb-buffer later
 		autocmd BufLeave * :call BMB_setBMB() 
-		autocmd BufEnter * :call BMB_checkBMB() 
+		autocmd BufEnter * :call BMB_bufEnter() 
 		
 		"Some syntax :) I guess this should be in syntax.vim later
 		syntax match BMB_DIR '\[d\]'    
@@ -443,9 +465,43 @@ function! BMB_setBMB()
 endfunction
 
 
-function! BMB_checkBMB()
+function! BMB_applyOp()
+	if g:BMB_currentOpData["op"] != v:none
+		let op = g:BMB_currentOpData["op"] 
+
+		if op == "changeBookmark"
+			echom "Change BOOKMARK"	
+			let bookmark = g:BMB_currentOpData["bookmark"]
+
+			let cp = getcurpos()
+
+			let line = cp[1]
+			let string = getline(line) 
+
+			"Change line, string, and file
+			let bookmark["line"] 	= line
+			let bookmark["string"] 	= string
+			let bookmark["file"] 	= @%
+
+
+			echom "Set line: " . line . " for bookmark: " . bookmark["id"]
+		else
+			echom "ERROR: unknown op: " . op
+		endif
+
+		let g:BMB_currentOpData = {"op":v:none}
+	endif
+
+endfunction
+
+
+function! BMB_bufEnter()
 	if has_key(g:BMB_bufferDict, string(bufnr()))
 		call s:BMB_render()
+	else
+		if g:BMB_currentOpData["op"] != v:none
+			nnoremap <leader>bmba :call BMB_applyOp()<CR>
+		endif
 	endif	
 endfunction
 

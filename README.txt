@@ -37,8 +37,6 @@ How to add directory to directory?
 
 --- TODO ---
 Change bookmark manually
-	Change line and file
-
 	Change directory
 
 	Duplicate bookmark? Could be nice if several domains/directories
@@ -53,7 +51,7 @@ Change directory manually
 
 	move directory
 
-	retmove directory
+	remove directory
 
 
 add signs where bookmarks are
