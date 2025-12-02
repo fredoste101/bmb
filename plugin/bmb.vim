@@ -13,10 +13,16 @@ let g:BMB_bufferDict = {}
 let s:BMB_state = 0 
 
 
-let g:BMB_currentOpData = {"op":v:none}
+"If there is an pending operation to be done
+"A pending operation is an operation started,
+"waiting to be preformed by BMB_applyPendingOp
+let g:BMB_pendingOpData = {"op":v:none}
 
 "The actual bookmark book
 let g:BMB_bookMarkBook = v:none
+
+"The rendering depth-dict
+let g:BMB_renderLineDepth = {} 
 
 "TODO: use this to autosave at times. I think it will be replaced by config in
 "bookMarksBook
@@ -82,7 +88,7 @@ endfunction
 function! BMB_saveBook()
 	"Save the book
 	if s:BMB_state == 0
-		echom "ERROR: must initialize BMB first"
+		echoe "must initialize BMB first"
 		return	
 	endif
 	
@@ -93,7 +99,7 @@ endfunction
 function! BMB_saveBookAs(fileName)
 	"Save the book as fileName
 	if s:BMB_state == 0
-		echom "ERROR: must initialize BMB first"
+		echoe "must initialize BMB first"
 		return	
 	endif
 
@@ -110,7 +116,7 @@ function! BMB_init(bookMarkFile)
 	"Initialize the bookmark-book :)
 	"With an existing one given by bookMarkFile
 
-	let g:BMB_currentOpData = {"op":v:none}
+	let g:BMB_pendingOpData = {"op":v:none}
 
 	let lines = readfile(a:bookMarkFile)
 
@@ -121,15 +127,16 @@ function! BMB_init(bookMarkFile)
 	let g:BMB_bookMarkBook = jsonObject
 
 	let s:BMB_state = 1 
+
 endfunction
 
 
 function! BMB_addBookmarkWithParent(parent)
 	"Add bookmark at the current position
-	"With parent as directory
+	"With parent (id) as directory
 
 	if s:BMB_state == 0
-		echom "ERROR: must initialize BMB first"
+		echoe "must initialize BMB first"
 		return	
 	endif
 
@@ -146,6 +153,17 @@ function! BMB_addBookmarkWithParent(parent)
 
 	let nextBookmarkId = g:BMB_bookMarkBook["nextBookmarkId"] 
 	"Now create the bookmark
+	"id: the id of the bookmark. Should be unique
+	"file: the file the bookmark is in
+	"line: the line in the file
+	"column: I don't think I use this yet...
+	"name: If the bookmark needs a name...
+	"info: some string explaining the bookmark
+	"dirIdList: a list of all dirs this bookmark belongs to... future
+	"	    proof they call it
+	"string: the string that the bookmark points to
+	"	 It should match file and line, but doesn't have to,
+	"	 then we must change it or accept it (approval of new pos)
 	let bookmark = 	{
 				\"id": nextBookmarkId,
 				\"file":@%,
@@ -202,14 +220,14 @@ function! BMB_gotoBookmark(bookmarkId)
 	"Jump to the given bookmarkId 
 	echo "gotoBookmark"
 	if s:BMB_state == 0
-		echom "ERROR: bmb must be initialized first"
+		echoe "bmb must be initialized first"
 		return	
 	endif	
 
 	let bookmarkId = string(a:bookmarkId)
 
 	if !has_key(g:BMB_bookMarkBook["bookmarkDict"], bookmarkId)
-		echom "ERROR: bookmark with id: " . bookmarkId . " does not exist in the book"
+		echoe "bookmark with id: " . bookmarkId . " does not exist in the book"
 		return
 	endif
 
@@ -251,7 +269,11 @@ function! BMB_addDir(parentId, name, info)
 endfunction
 
 
-function! s:BMB_renderBookmark(bookmark, line, indent)
+function! s:BMB_renderBookmark(bookmark, line, depth)
+
+	let g:BMB_renderLineDepth[string(a:line)] = a:depth
+
+	let indent = repeat("  ", a:depth)
 
 	let g:BMB_bookMarkBook["renderedBookmarks"][string(a:line)] = a:bookmark["id"]
 
@@ -263,22 +285,26 @@ function! s:BMB_renderBookmark(bookmark, line, indent)
 	endif
 
 	call setline(a:line, 
-		     \a:indent . string(a:bookmark["id"]) . 
+		     \indent . string(a:bookmark["id"]) . 
 		     \" | " . lineContent . " | " . a:bookmark["info"])
 
 endfunction
 
 
-function! s:BMB_renderDir(dir, startLine, indent)
+function! s:BMB_renderDir(dir, startLine, depth)
 	"TODO: must save the line numbers and such, in order to open.
 	"How to handle closing and opening? that's a future problem
+	
+	let g:BMB_renderLineDepth[string(a:startLine)] = a:depth
 	
 	let lineNumber = a:startLine
 
 	let dirSpecifierString = "[d] -"
 
+	let indent = repeat("  ", a:depth)
+
 	call setline(lineNumber, 
-		     \a:indent . 
+		     \indent . 
 		     \dirSpecifierString . " " . a:dir["name"] . " | " . a:dir["info"])
 
 	let g:BMB_bookMarkBook["renderedDirs"][string(lineNumber)] = a:dir
@@ -295,13 +321,13 @@ function! s:BMB_renderDir(dir, startLine, indent)
 
 		let lineNumber = s:BMB_renderDir(subDir, 
 						    \lineNumber, 
-						    \a:indent . "  ")
+						    \a:depth + 1)
 	endfor
 
 	for bookmarkId in a:dir["bookmarkIdList"]
 		call s:BMB_renderBookmark(g:BMB_bookMarkBook["bookmarkDict"][string(bookmarkId)], 
 					 \lineNumber, 
-					 \a:indent . "  ")
+					 \a:depth + 1)
 		let lineNumber += 1
 	endfor
 
@@ -357,9 +383,11 @@ function! BMB_changeInfoBookmark(id, info)
 	let g:BMB_bookMarkBook["bookmarkDict"][string(a:id)]["info"] = a:info 
 endfunction
 
+
 function! BMB_changeInfoDir(id, info)
 	let g:BMB_bookMarkBook["dirDict"][string(a:id)]["info"] = a:info 
 endfunction
+
 
 function! BMB_changeInfoInBook()
 	"Within the book, change info of currently selected element
@@ -395,7 +423,30 @@ function! BMB_changeInfoInBook()
 endfunction
 
 
-function! BMB_changePosInBook()
+function! s:BMB_getDirInBook()
+	"When in bmb file, return if the current line is on a rendered dir
+	"If not, v:none is returned
+
+	let cp = getcurpos()
+
+	let lineString = string(cp[1])
+
+	if has_key(g:BMB_bookMarkBook["renderedDirs"], lineString)
+		return g:BMB_bookMarkBook["renderedDirs"][lineString]
+	endif
+
+	return v:none
+
+
+endfunction
+
+
+function! s:BMB_getBookmarkInBook()
+	"Return the bookmark when in the book.
+	"I.E for the current line, check if any booksmarks are rendered for it
+	"and if so, return that bookmark
+	"else return v:none
+	
 	let cp = getcurpos()
 
 	let lineString = string(cp[1])
@@ -405,12 +456,74 @@ function! BMB_changePosInBook()
 
 		let bookmark = 	g:BMB_bookMarkBook["bookmarkDict"][string(bookmarkId)]
 
+		return bookmark
+	endif
+
+	return v:none
+
+endfunction
+
+
+function! BMB_changePosInBook()
+	let cp = getcurpos()
+
+	let lineString = string(cp[1])
+
+	let bookmark = s:BMB_getBookmarkInBook()
+
+	if has_key(g:BMB_bookMarkBook["renderedBookmarks"], lineString)
+		let bookmarkId = g:BMB_bookMarkBook["renderedBookmarks"][lineString]
+
+		let bookmark = 	g:BMB_bookMarkBook["bookmarkDict"][string(bookmarkId)]
+
 		call popup_notification("Change bookmark: " . bookmarkId, 
 					\{"title":"c", "pos":"topleft"})	
 
-		let g:BMB_currentOpData = {"op":"changeBookmark", "bookmark":bookmark} 
+		let g:BMB_pendingOpData = {"op":"changeBookmark", "bookmark":bookmark} 
 	endif
+endfunction
 
+
+function! BMB_moveBookmarkInBook()
+	"Starts operation to move bookmark in book	
+	"Is applied with BMB_applyPendingOp
+	
+	let bookmark = s:BMB_getBookmarkInBook()
+
+	let dir = s:BMB_getDirInBook()
+	let cp = getcurpos()		
+	let startpos = cp 
+	
+	let bookmarkDepth = g:BMB_renderLineDepth[string(cp[1])]
+
+	if type(bookmark) == 4 
+		"Me thinks we need also to find the current rendered parent... since I
+		"have been so smart that it is borderline retarded
+		"There must be a dir above, find it, and check that it is the
+		"actual one we are in, since there can be more that we are not
+		"in... and this can be wrong also.. fuck
+		let notFoundInList = v:true
+		let dir = v:none
+		while notFoundInList
+			let cp = getcurpos()		
+			let cp[1] -= 1
+			call setpos(".", cp)
+			let dir = s:BMB_getDirInBook()
+
+			if type(dir) == 4
+				if index(bookmark["dirIdList"], dir["id"])
+					if g:BMB_renderLineDepth[string(cp[1])] == (bookmarkDepth - 1)
+						let notFoundInList = v:false	
+					endif
+				endif	
+			endif
+		endwhile	
+
+		let g:BMB_pendingOpData = {"op":"moveBookmarkInBook", "bookmark":bookmark, "fromDir":dir}
+
+		call setpos(".", startpos)
+	endif
+	
 endfunction
 
 
@@ -430,6 +543,7 @@ function! s:BMB_render()
 		nnoremap <buffer> <CR> :call BMB_openInBook()<CR>
 		nnoremap <buffer> i :call BMB_changeInfoInBook()<CR>
 		nnoremap <buffer> c :call BMB_changePosInBook()<CR>
+		nnoremap <buffer> m :call BMB_moveBookmarkInBook()<CR>
 
 		"These are here so we know how to rerender the bmb-buffer later
 		autocmd BufLeave * :call BMB_setBMB() 
@@ -445,11 +559,12 @@ function! s:BMB_render()
 
 	let g:BMB_bookMarkBook["renderedBookmarks"] = {}
 	let g:BMB_bookMarkBook["renderedDirs"] 	    = {}
+	let g:BMB_renderLineDepth = {} 
 
 	let root = g:BMB_bookMarkBook["dirDict"][string(s:BMB_rootIndex)]
 
 	setlocal modifiable
-	call s:BMB_renderDir(root, 1, "")
+	call s:BMB_renderDir(root, 1, 0)
 
 	"setlocal nomodifiable
 endfunction
@@ -461,17 +576,21 @@ function! BMB_setBMB()
 			let g:BMB_bufferDict[string(bufnr())] = v:true
 		endif	
 	endif 
-	
 endfunction
 
 
-function! BMB_applyOp()
-	if g:BMB_currentOpData["op"] != v:none
-		let op = g:BMB_currentOpData["op"] 
+function! BMB_applyPendingOp()
+	"Apply a pending operation in BMB_pendingOpData
+	if g:BMB_pendingOpData["op"] != v:none
+		let op = g:BMB_pendingOpData["op"] 
 
 		if op == "changeBookmark"
-			echom "Change BOOKMARK"	
-			let bookmark = g:BMB_currentOpData["bookmark"]
+			if &filetype == "bmb"
+				echoe "cannot set a bookmark to be in the book :("
+				return
+			endif
+
+			let bookmark = g:BMB_pendingOpData["bookmark"]
 
 			let cp = getcurpos()
 
@@ -483,13 +602,62 @@ function! BMB_applyOp()
 			let bookmark["string"] 	= string
 			let bookmark["file"] 	= @%
 
-
 			echom "Set line: " . line . " for bookmark: " . bookmark["id"]
+
+		elseif op == "moveBookmarkInBook"
+			"First check if current file is the bmb
+			if &filetype != "bmb"
+				echoe "Can't move bookmark if not in bmb file"	
+				return
+			endif
+
+			"Check if current line is a dir	
+			let dir = s:BMB_getDirInBook()		
+
+			if type(dir) != 4
+				echoe "Not on dir"	
+				return
+			endif
+
+			let startpos = getcurpos()
+
+			let bookmark = g:BMB_pendingOpData["bookmark"]
+
+			let fromDir = g:BMB_pendingOpData["fromDir"]
+
+			if fromDir != dir
+				"Only move if different dir to move to... yes
+				"Also, if dir already exists, it is only a
+				"removal. Is this an error case?
+		
+				let indexToRemove = index(bookmark["dirIdList"], string(fromDir["id"])) 
+				
+				call remove(bookmark["dirIdList"], indexToRemove)
+
+				let bookmarkIndexToRemove = index(fromDir["bookmarkIdList"], bookmark["id"])
+
+				call remove(fromDir["bookmarkIdList"], bookmarkIndexToRemove)
+
+				if index(bookmark["dirIdList"], string(dir["id"])) == -1
+					"Only add the bookmark to the new dir,
+					"if it isn't already there. Is this a
+					"error case?
+					call add(bookmark["dirIdList"], string(dir["id"]))
+					call add(dir["bookmarkIdList"], bookmark["id"]) 
+				endif
+
+				"Rerender the shit
+				call s:BMB_render() 
+
+				"go back to where we were
+				call setpos(".", startpos)
+			endif
+		
 		else
-			echom "ERROR: unknown op: " . op
+			echoe "unknown op: " . op
 		endif
 
-		let g:BMB_currentOpData = {"op":v:none}
+		let g:BMB_pendingOpData = {"op":v:none}
 	endif
 
 endfunction
@@ -498,9 +666,11 @@ endfunction
 function! BMB_bufEnter()
 	if has_key(g:BMB_bufferDict, string(bufnr()))
 		call s:BMB_render()
+
 	else
-		if g:BMB_currentOpData["op"] != v:none
-			nnoremap <leader>bmba :call BMB_applyOp()<CR>
+		if g:BMB_pendingOpData["op"] != v:none
+			"If there is a pending operation, set a mapping for it
+			nnoremap <leader>bmba :call BMB_applyPendingOp()<CR>
 		endif
 	endif	
 endfunction
@@ -511,7 +681,7 @@ function! BMB_openBuffer()
 	"This should be a special buffer then, whith special special
 	
 	if s:BMB_state == 0
-		echom "ERROR: must initialize BMB first before opening special buffer"
+		echoe "must initialize BMB first before opening special buffer"
 		return	
 	endif
 

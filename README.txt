@@ -37,8 +37,6 @@ How to add directory to directory?
 
 --- TODO ---
 Change bookmark manually
-	Change directory
-
 	Duplicate bookmark? Could be nice if several domains/directories
 	refer to the same thing
 
