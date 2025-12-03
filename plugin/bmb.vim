@@ -9,7 +9,6 @@ let g:BMB_bufferDict = {}
 "0 - Means we are not initialized at all. nothing will work
 "1 - We have initialized, either by init from existing or creating a new. Now
 "    we can start doing stuff
-
 let s:BMB_state = 0 
 
 
@@ -24,16 +23,16 @@ let g:BMB_bookMarkBook = v:none
 "The rendering depth-dict
 let g:BMB_renderLineDepth = {} 
 
-"TODO: use this to autosave at times. I think it will be replaced by config in
-"bookMarksBook
+"TODO: use this to autosave at times. 
+"I think it will be replaced by config in bookMarksBook
 let g:BMB_autoSave = v:false
-
 
 "All previously visited bookmarks. This can be used to go quickly to a
 "previous place is my thinking... Lets see if it be smart of nah
 let g:BMB_previousBookMarksVisited = []
 
 let s:BMB_rootIndex = 0
+
 
 function! BMB_createBook(fileName, name)
 	"Create a bookmark book with name, save in fileName.
@@ -195,8 +194,24 @@ function! BMB_addBookmark()
 endfunction
 
 
-function! BMB_removeBookmark(id)
-	"TODO
+function! BMB_removeBookmarkInBook()
+	let bookmark = s:BMB_getBookmarkInBook()
+
+	if type(bookmark) == 4 
+		echom "REMOVE BOOKMARK"
+
+		for id in bookmark["dirIdList"]
+			let dir = g:BMB_bookMarkBook["dirDict"][id]
+
+			let indexToRemove = index(dir["bookmarkIdList"], bookmark["id"])
+
+			call remove(dir["bookmarkIdList"], indexToRemove)	
+			
+		endfor
+		call remove(g:BMB_bookMarkBook["bookmarkDict"], string(bookmark["id"]))	
+
+		call s:BMB_render()
+	endif
 
 
 endfunction
@@ -320,8 +335,8 @@ function! s:BMB_renderDir(dir, startLine, depth)
 		let subDir = g:BMB_bookMarkBook["dirDict"][string(dirId)]
 
 		let lineNumber = s:BMB_renderDir(subDir, 
-						    \lineNumber, 
-						    \a:depth + 1)
+					         \lineNumber, 
+						 \a:depth + 1)
 	endfor
 
 	for bookmarkId in a:dir["bookmarkIdList"]
@@ -484,14 +499,46 @@ function! BMB_changePosInBook()
 endfunction
 
 
+function! BMB_gotoParentDirInBook()
+	"Jump to parent in book.
+
+	let cp = getcurpos()		
+
+	let currentDepth = g:BMB_renderLineDepth[string(cp[1])]
+
+	let notFoundInList = v:true
+	let dir = v:none
+
+	if currentDepth == 0
+		echom "on root already"
+		return
+	endif
+
+	while notFoundInList
+		let cp = getcurpos()		
+		let cp[1] -= 1
+		call setpos(".", cp)
+		let dir = s:BMB_getDirInBook()
+
+		if type(dir) == 4
+			if g:BMB_renderLineDepth[string(cp[1])] == (currentDepth - 1)
+				let notFoundInList = v:false	
+			endif
+		endif
+	endwhile	
+
+endfunction
+
+
 function! BMB_moveBookmarkInBook()
 	"Starts operation to move bookmark in book	
 	"Is applied with BMB_applyPendingOp
+	"TODO: add ability to move dir also through this
 	
 	let bookmark = s:BMB_getBookmarkInBook()
 
-	let dir = s:BMB_getDirInBook()
 	let cp = getcurpos()		
+
 	let startpos = cp 
 	
 	let bookmarkDepth = g:BMB_renderLineDepth[string(cp[1])]
@@ -529,7 +576,7 @@ endfunction
 
 function! s:BMB_render()
 	"Render the book. Should be called when filetype is bmb
-	echom "RENDER"
+	"echom "RENDER"
 
 	setlocal filetype=bmb
 	setlocal buftype=nowrite
@@ -537,13 +584,23 @@ function! s:BMB_render()
 	setlocal cursorline
 	setlocal noswapfile
 	setlocal nowrap
+	setlocal noshowcmd
 
 	augroup BMB
 		au!
+		"Add all bmb-mappings
 		nnoremap <buffer> <CR> :call BMB_openInBook()<CR>
-		nnoremap <buffer> i :call BMB_changeInfoInBook()<CR>
-		nnoremap <buffer> c :call BMB_changePosInBook()<CR>
-		nnoremap <buffer> m :call BMB_moveBookmarkInBook()<CR>
+		nnoremap <buffer> i    :call BMB_changeInfoInBook()<CR>
+		nnoremap <buffer> c    :call BMB_changePosInBook()<CR>
+		nnoremap <buffer> m    :call BMB_moveBookmarkInBook()<CR>
+		nnoremap <buffer> r    :call BMB_removeBookmarkInBook()<CR>
+
+		"This is the most retarded thing I've ever seen.
+		"If I call this function explicitly in the bmb-buffer, it
+		"doesn't work. in fact. getcurpos doesn't work. it jump to
+		"first line all the time. except that some of the time it
+		"doesn't... fucking shit. but this works... somehow
+		nnoremap <buffer> p    :call BMB_gotoParentDirInBook()<CR>
 
 		"These are here so we know how to rerender the bmb-buffer later
 		autocmd BufLeave * :call BMB_setBMB() 
@@ -690,6 +747,3 @@ function! BMB_openBuffer()
 	call s:BMB_render()
 	
 endfunction
-
-
-

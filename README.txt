@@ -12,7 +12,7 @@ Each bookmark should have its own litte description.
 
 Bookmarks will be hard coded (I.E file and line),
 but there will be functions to detect when a bookmark no longer point to
-the same piece of text as previous.
+the same piece of text as previous. And then it can be changed automatically or manually.
 
 This allows us (hopefully) to update bookmarks when changes occurs in text (code).
 
@@ -40,19 +40,22 @@ Change bookmark manually
 	Duplicate bookmark? Could be nice if several domains/directories
 	refer to the same thing
 
-	Change info within the file
-
-	Remove bookmark
 
 Change directory manually
-	Add a subdir
+	Add a subdir - this will be done in the book
 
-	move directory
+	move directory - in the book
 
-	remove directory
+	remove directory - in the book. Remove all bookmarks?
 
 
 add signs where bookmarks are
+	Change info within the file
+
+
+add bookmark outside of book
+	How to handle choice of parent? some sort of auto-complete?
+
 
 
 Killer feature: autochange bookmarks
@@ -63,6 +66,6 @@ Killer feature: autochange bookmarks
 	
 		File no longer exists
 
-Get a little popup with preview of bookmark
+Get a little popup with preview of bookmark in book
 
 	
