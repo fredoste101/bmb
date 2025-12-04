@@ -198,19 +198,25 @@ function! BMB_removeBookmarkInBook()
 	let bookmark = s:BMB_getBookmarkInBook()
 
 	if type(bookmark) == 4 
-		echom "REMOVE BOOKMARK"
+		let v = confirm("Remove bookmark completly?:", "&Yes\n&No", 2)
 
-		for id in bookmark["dirIdList"]
-			let dir = g:BMB_bookMarkBook["dirDict"][id]
+		if v == 1
+			for id in bookmark["dirIdList"]
+				let dir = g:BMB_bookMarkBook["dirDict"][id]
 
-			let indexToRemove = index(dir["bookmarkIdList"], bookmark["id"])
+				let indexToRemove = index(dir["bookmarkIdList"], bookmark["id"])
 
-			call remove(dir["bookmarkIdList"], indexToRemove)	
-			
-		endfor
-		call remove(g:BMB_bookMarkBook["bookmarkDict"], string(bookmark["id"]))	
+				call remove(dir["bookmarkIdList"], indexToRemove)	
+				
+			endfor
+			call remove(g:BMB_bookMarkBook["bookmarkDict"], string(bookmark["id"]))	
 
-		call s:BMB_render()
+			let cp = getcurpos()
+
+			call s:BMB_render()
+
+			call setpos(".", cp)
+		endif
 	endif
 
 
@@ -574,9 +580,42 @@ function! BMB_moveBookmarkInBook()
 endfunction
 
 
+function! s:BMB_startDuplicateBookmarkInBook()
+
+	let bookmark = s:BMB_getBookmarkInBook()
+
+	if type(bookmark) == 4
+		let g:BMB_pendingOpData = {"op":"duplicateBookmark", "bookmark":bookmark}
+
+	endif
+
+endfunction
+
+
+function! BMB_startPendingOp(op)
+
+	if a:op == "changePosInBook"
+		call BMB_changePosInBook()
+
+	elseif a:op == "moveBookmarkInBook"
+		call BMB_moveBookmarkInBook()
+
+	elseif a:op == "removeBookmarkInBook"
+		call BMB_removeBookmarkInBook()
+	
+	elseif a:op == "duplicateBookmarkInBook"
+		call s:BMB_startDuplicateBookmarkInBook()
+
+	else
+		echoe "ERROR: unknown op: " . a:op
+
+	endif
+
+endfunction
+
+
 function! s:BMB_render()
 	"Render the book. Should be called when filetype is bmb
-	"echom "RENDER"
 
 	setlocal filetype=bmb
 	setlocal buftype=nowrite
@@ -586,14 +625,17 @@ function! s:BMB_render()
 	setlocal nowrap
 	setlocal noshowcmd
 
+
 	augroup BMB
 		au!
 		"Add all bmb-mappings
 		nnoremap <buffer> <CR> :call BMB_openInBook()<CR>
 		nnoremap <buffer> i    :call BMB_changeInfoInBook()<CR>
-		nnoremap <buffer> c    :call BMB_changePosInBook()<CR>
-		nnoremap <buffer> m    :call BMB_moveBookmarkInBook()<CR>
-		nnoremap <buffer> r    :call BMB_removeBookmarkInBook()<CR>
+
+		nnoremap <buffer> c    :call BMB_startPendingOp("changePosInBook")<CR>
+		nnoremap <buffer> m    :call BMB_startPendingOp("moveBookmarkInBook")<CR>
+		nnoremap <buffer> r    :call BMB_startPendingOp("removeBookmarkInBook")<CR>
+		nnoremap <buffer> d    :call BMB_startPendingOp("duplicateBookmarkInBook")<CR>
 
 		"This is the most retarded thing I've ever seen.
 		"If I call this function explicitly in the bmb-buffer, it
@@ -612,7 +654,8 @@ function! s:BMB_render()
 	augroup END
 
 	"Clear the buffer
-	execute "normal ggVGdd"
+	execute "normal! ggVGdd"
+
 
 	let g:BMB_bookMarkBook["renderedBookmarks"] = {}
 	let g:BMB_bookMarkBook["renderedDirs"] 	    = {}
@@ -633,6 +676,30 @@ function! BMB_setBMB()
 			let g:BMB_bufferDict[string(bufnr())] = v:true
 		endif	
 	endif 
+endfunction
+
+
+function! BMB_applyDuplicateBookmark()
+	"Apply the duplicate operation.
+	"Must be on a dir, and, it shouldnt exists within it alread.
+	
+	let dir = s:BMB_getDirInBook()
+
+	if type(dir) == 4
+		let bookmark = g:BMB_pendingOpData["bookmark"]
+
+		let index = index(dir["bookmarkIdList"], bookmark["id"])
+
+		if index == -1
+			let cp = getcurpos()
+			call add(dir["bookmarkIdList"], bookmark["id"])
+			call add(bookmark["dirIdList"], string(dir["id"]))
+			call s:BMB_render()
+			call setpos(".", cp)
+		else
+			echom "Already in this dir"
+		endif
+	endif
 endfunction
 
 
@@ -709,9 +776,12 @@ function! BMB_applyPendingOp()
 				"go back to where we were
 				call setpos(".", startpos)
 			endif
+
+		elseif op == "duplicateBookmark"
+			call BMB_applyDuplicateBookmark()
 		
 		else
-			echoe "unknown op: " . op
+			echoe "ERROR: unknown op: " . op
 		endif
 
 		let g:BMB_pendingOpData = {"op":v:none}

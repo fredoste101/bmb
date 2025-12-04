@@ -1,3 +1,9 @@
+ _           _
+| \         | \
+|_/         |_/
+| \  /\ /\  | \
+|_/ /  v  \ |_/
+
 === BMB ===
 
 BookMarkBook, or bmb for short,
@@ -36,11 +42,6 @@ How to add directory to directory?
 
 
 --- TODO ---
-Change bookmark manually
-	Duplicate bookmark? Could be nice if several domains/directories
-	refer to the same thing
-
-
 Change directory manually
 	Add a subdir - this will be done in the book
 
@@ -66,6 +67,12 @@ Killer feature: autochange bookmarks
 	
 		File no longer exists
 
+
 Get a little popup with preview of bookmark in book
+
+
+Well. removing bookmark should be:
+	Per dir, and also globally, but different functionality
+	AND be a bit more difficult. a confirm box maybe?
 
 	
