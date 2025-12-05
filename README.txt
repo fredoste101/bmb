@@ -43,8 +43,6 @@ How to add directory to directory?
 
 --- TODO ---
 Change directory manually
-	Add a subdir - this will be done in the book
-
 	move directory - in the book
 
 	remove directory - in the book. Remove all bookmarks?
@@ -74,5 +72,8 @@ Get a little popup with preview of bookmark in book
 Well. removing bookmark should be:
 	Per dir, and also globally, but different functionality
 	AND be a bit more difficult. a confirm box maybe?
+
+Change symbol for dir that are opened in the book.
+I.E should be > when they are not opened and v when opened. User friendlyness delux.
 
 	

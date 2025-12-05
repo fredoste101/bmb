@@ -592,6 +592,32 @@ function! s:BMB_startDuplicateBookmarkInBook()
 endfunction
 
 
+function! s:BMB_addDirInBook()
+	"Add a subdir to a dir in the book
+	"Only put in name first now. Info is easy to add later :)
+
+	let dir = s:BMB_getDirInBook()
+
+	if type(dir) == 4
+			
+		call inputsave()
+
+		let name = input("dir name: ")
+
+		call inputrestore()
+
+		let cp = getcurpos()
+
+		call BMB_addDir(dir["id"], name, "")
+
+		call s:BMB_render()
+
+		call setpos(".", cp)
+	endif
+
+endfunction
+
+
 function! BMB_startPendingOp(op)
 
 	if a:op == "changePosInBook"
@@ -606,6 +632,8 @@ function! BMB_startPendingOp(op)
 	elseif a:op == "duplicateBookmarkInBook"
 		call s:BMB_startDuplicateBookmarkInBook()
 
+	elseif a:op == "addDirInBook"
+		call s:BMB_addDirInBook()
 	else
 		echoe "ERROR: unknown op: " . a:op
 
@@ -636,6 +664,7 @@ function! s:BMB_render()
 		nnoremap <buffer> m    :call BMB_startPendingOp("moveBookmarkInBook")<CR>
 		nnoremap <buffer> r    :call BMB_startPendingOp("removeBookmarkInBook")<CR>
 		nnoremap <buffer> d    :call BMB_startPendingOp("duplicateBookmarkInBook")<CR>
+		nnoremap <buffer> ad   :call BMB_startPendingOp("addDirInBook")<CR>
 
 		"This is the most retarded thing I've ever seen.
 		"If I call this function explicitly in the bmb-buffer, it
