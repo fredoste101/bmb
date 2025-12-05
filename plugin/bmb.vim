@@ -170,7 +170,7 @@ function! BMB_addBookmarkWithParent(parent)
 				\"column":column,
 				\"name":"",
 				\"info":"",
-				\"dirIdList":[string(a:parent)],
+				\"dirIdList":[a:parent],
 				\"string":string
 			\} 
 
@@ -194,15 +194,53 @@ function! BMB_addBookmark()
 endfunction
 
 
-function! BMB_removeBookmarkInBook()
+function! s:BMB_removeDir(dir, parentDir)
+	"Remove dir. I.E remove all bookmarks in it,
+	"and then remove all subdirs recursively in same manner
+		
+
+
+	for bookmarkId in a:dir["bookmarkIdList"]
+		"Remove this dir from the bookmark.
+		"why are we even here? just to suffer?
+		let bookmark = g:BMB_bookMarkBook["bookmarkDict"][string(bookmarkId)]
+
+		let indexToRemove = index(bookmark["dirIdList"], a:dir["id"])
+
+		call remove(bookmark["dirIdList"], indexToRemove)	
+
+		if len(bookmark["dirIdList"]) == 0
+			"This bookmark was only in this dir. And this dir is going away. 
+			"so bye bye bookmark
+			call remove(g:BMB_bookMarkBook["bookmarkDict"], string(bookmarkId))	
+		endif
+	endfor
+
+	for dirId in a:dir["dirIdList"]
+		call s:BMB_removeDir(g:BMB_bookMarkBook["dirDict"][string(dirId)], a:dir)
+	endfor
+
+	"Remove this dir
+	let indexToRemove = index(a:parentDir["dirIdList"], a:dir["id"])
+
+	call remove(a:parentDir["dirIdList"], indexToRemove)
+
+	call remove(g:BMB_bookMarkBook["dirDict"], string(a:dir["id"]))	
+
+endfunction
+
+
+function! BMB_removeInBook()
 	let bookmark = s:BMB_getBookmarkInBook()
+
+	let dir = s:BMB_getDirInBook()
 
 	if type(bookmark) == 4 
 		let v = confirm("Remove bookmark completly?:", "&Yes\n&No", 2)
 
 		if v == 1
 			for id in bookmark["dirIdList"]
-				let dir = g:BMB_bookMarkBook["dirDict"][id]
+				let dir = g:BMB_bookMarkBook["dirDict"][string(id)]
 
 				let indexToRemove = index(dir["bookmarkIdList"], bookmark["id"])
 
@@ -217,15 +255,30 @@ function! BMB_removeBookmarkInBook()
 
 			call setpos(".", cp)
 		endif
+
+	elseif type(dir) == 4
+
+		"I don't want to remove root. That f-ing illegal!
+		if dir["id"] != 0
+
+			let v = confirm("Remove dir completly?:", "&Yes\n&No", 2)
+
+			call BMB_gotoParentDirInBook()
+
+			let parentDir = s:BMB_getDirInBook() 
+
+
+			if v == 1
+
+				call s:BMB_removeDir(dir, parentDir)	
+
+				call s:BMB_render()
+			endif
+		endif
+
+	
 	endif
 
-
-endfunction
-
-
-function! BMB_removeDir(id)
-	"TODO: this one is the most pain in ass. It needs to be recursively
-	"deleted downwards, both dirs and bookmarks
 
 endfunction
 
@@ -345,7 +398,7 @@ function! s:BMB_renderDir(dir, startLine, depth)
 	end
 
 	for dirId in a:dir["dirIdList"]
-		let subDir = g:BMB_bookMarkBook["dirDict"][string(dirId)]
+		let subDir = g:BMB_bookMarkBook["dirDict"][dirId]
 
 		let lineNumber = s:BMB_renderDir(subDir, 
 					         \lineNumber, 
@@ -559,27 +612,9 @@ function! BMB_moveInBook()
 	let bookmarkDepth = g:BMB_renderLineDepth[string(cp[1])]
 
 	if type(bookmark) == 4 
-		"Me thinks we need also to find the current rendered parent... since I
-		"have been so smart that it is borderline retarded
-		"There must be a dir above, find it, and check that it is the
-		"actual one we are in, since there can be more that we are not
-		"in... and this can be wrong also.. fuck
-		let notFoundInList = v:true
-		let dir = v:none
-		while notFoundInList
-			let cp = getcurpos()		
-			let cp[1] -= 1
-			call setpos(".", cp)
-			let dir = s:BMB_getDirInBook()
+		call BMB_gotoParentDirInBook()
 
-			if type(dir) == 4
-				if index(bookmark["dirIdList"], dir["id"])
-					if g:BMB_renderLineDepth[string(cp[1])] == (bookmarkDepth - 1)
-						let notFoundInList = v:false	
-					endif
-				endif	
-			endif
-		endwhile	
+		let dir = s:BMB_getDirInBook()
 
 		let g:BMB_pendingOpData = {"op":"moveBookmarkInBook", "bookmark":bookmark, "fromDir":dir}
 
@@ -644,9 +679,6 @@ function! BMB_startPendingOp(op)
 
 	elseif a:op == "moveInBook"
 		call BMB_moveInBook()
-
-	elseif a:op == "removeBookmarkInBook"
-		call BMB_removeBookmarkInBook()
 	
 	elseif a:op == "duplicateBookmarkInBook"
 		call s:BMB_startDuplicateBookmarkInBook()
@@ -679,11 +711,14 @@ function! s:BMB_render()
 		nnoremap <buffer> <CR> :call BMB_openInBook()<CR>
 		nnoremap <buffer> i    :call BMB_changeInfoInBook()<CR>
 
+		"Starting pending operations
 		nnoremap <buffer> c    :call BMB_startPendingOp("changePosInBook")<CR>
 		nnoremap <buffer> m    :call BMB_startPendingOp("moveInBook")<CR>
-		nnoremap <buffer> r    :call BMB_startPendingOp("removeBookmarkInBook")<CR>
 		nnoremap <buffer> d    :call BMB_startPendingOp("duplicateBookmarkInBook")<CR>
 		nnoremap <buffer> ad   :call BMB_startPendingOp("addDirInBook")<CR>
+
+		"Direct actions
+		nnoremap <buffer> r    :call BMB_removeInBook()<CR>
 
 		"This is the most retarded thing I've ever seen.
 		"If I call this function explicitly in the bmb-buffer, it
@@ -742,7 +777,7 @@ function! BMB_applyDuplicateBookmark()
 		if index == -1
 			let cp = getcurpos()
 			call add(dir["bookmarkIdList"], bookmark["id"])
-			call add(bookmark["dirIdList"], string(dir["id"]))
+			call add(bookmark["dirIdList"], dir["id"])
 			call s:BMB_render()
 			call setpos(".", cp)
 		else
@@ -838,7 +873,7 @@ function! BMB_applyPendingOp()
 				"Also, if dir already exists, it is only a
 				"removal. Is this an error case?
 		
-				let indexToRemove = index(bookmark["dirIdList"], string(fromDir["id"])) 
+				let indexToRemove = index(bookmark["dirIdList"], fromDir["id"]) 
 				
 				call remove(bookmark["dirIdList"], indexToRemove)
 
@@ -846,11 +881,11 @@ function! BMB_applyPendingOp()
 
 				call remove(fromDir["bookmarkIdList"], bookmarkIndexToRemove)
 
-				if index(bookmark["dirIdList"], string(dir["id"])) == -1
+				if index(bookmark["dirIdList"], dir["id"]) == -1
 					"Only add the bookmark to the new dir,
 					"if it isn't already there. Is this a
 					"error case?
-					call add(bookmark["dirIdList"], string(dir["id"]))
+					call add(bookmark["dirIdList"], dir["id"])
 					call add(dir["bookmarkIdList"], bookmark["id"]) 
 				endif
 

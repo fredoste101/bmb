@@ -42,10 +42,6 @@ How to add directory to directory?
 
 
 --- TODO ---
-Change directory manually
-	remove directory - in the book. Remove all bookmarks?
-	I think remove all booksmarks in the dir if the bookmarks only have this as parent maybe. seems reasonable.
-
 
 add signs where bookmarks are
 	Change info within the file
