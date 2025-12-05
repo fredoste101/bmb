@@ -39,16 +39,16 @@ function! BMB_createBook(fileName, name)
 	"baseDir is to keep track of paths in some sort of fashion. 
 	"lets see how it plays out
 
-	"name: Then name of the bmb
-	"created: timestamp when created
-	"modified: timestamp when modified
-	"basedir: base directory from which the rest of bookmarks depend on
-	"	  per default: current working directory
-	"bookmarkDict: dictionary with all bookmarks
-	"dirDict: dictionary with dirs. Each dir contains refs to more dirs or
-	"         bookmarks
+	"name: 		 Then name of the bmb
+	"created: 	 timestamp when created
+	"modified: 	 timestamp when modified
+	"basedir: 	 base directory from which the rest of bookmarks depend on
+	"	  	 per default: current working directory
+	"bookmarkDict: 	 dictionary with all bookmarks
+	"dirDict: 	 dictionary with dirs. Each dir contains refs to more dirs or
+	"         	 bookmarks
 	"nextBookmarkId: ID that a newly bookmark will get
-	"nextDirId: ID that a newly created dir will get
+	"nextDirId: 	 ID that a newly created dir will get
 	let g:BMB_bookMarkBook = {
 					\"name":	   a:name,
 					\"created":	   localtime(), 
@@ -114,6 +114,7 @@ endfunction
 function! BMB_init(bookMarkFile)
 	"Initialize the bookmark-book :)
 	"With an existing one given by bookMarkFile
+	call sign_unplace("bmb")
 
 	let g:BMB_pendingOpData = {"op":v:none}
 
@@ -212,6 +213,13 @@ function! s:BMB_removeDir(dir, parentDir)
 		if len(bookmark["dirIdList"]) == 0
 			"This bookmark was only in this dir. And this dir is going away. 
 			"so bye bye bookmark
+
+			"Remove any sign this bookmark has
+			if bufexists(bookmark["file"])
+				call sign_unplace("bmb", {'buffer' : bufnr(bookmark["file"]), 
+					   		  \'id' : bookmark["id"] + 1})
+			endif	
+
 			call remove(g:BMB_bookMarkBook["bookmarkDict"], string(bookmarkId))	
 		endif
 	endfor
@@ -247,6 +255,13 @@ function! BMB_removeInBook()
 				call remove(dir["bookmarkIdList"], indexToRemove)	
 				
 			endfor
+
+			"Remove any sign this bookmark has
+			if bufexists(bookmark["file"])
+				call sign_unplace("bmb", {'buffer' : bufnr(bookmark["file"]), 
+					   		  \'id' : bookmark["id"] + 1})
+			endif	
+
 			call remove(g:BMB_bookMarkBook["bookmarkDict"], string(bookmark["id"]))	
 
 			let cp = getcurpos()
@@ -558,7 +573,7 @@ function! BMB_changePosInBook()
 		let bookmark = 	g:BMB_bookMarkBook["bookmarkDict"][string(bookmarkId)]
 
 		call popup_notification("Change bookmark: " . bookmarkId, 
-					\{"title":"c", "pos":"topleft"})	
+					\{"title":"c", "pos":"topright"})	
 
 		let g:BMB_pendingOpData = {"op":"changeBookmark", "bookmark":bookmark} 
 	endif
@@ -780,6 +795,7 @@ function! BMB_applyDuplicateBookmark()
 			call add(bookmark["dirIdList"], dir["id"])
 			call s:BMB_render()
 			call setpos(".", cp)
+
 		else
 			echom "Already in this dir"
 		endif
@@ -814,8 +830,97 @@ function! BMB_applyMoveDirInBook()
 			call setpos(".", cp)
 		endif 		
 	endif
-	
 
+endfunction
+
+
+function! s:BMB_applyChangeBookmark()
+	"Apply the change bookmark operation.
+	"I.E CHANGE the FILE and LINE of given bookmark.
+
+	if &filetype == "bmb"
+		echoe "cannot set a bookmark to be in the book :("
+		return
+	endif
+
+
+	let bookmark = g:BMB_pendingOpData["bookmark"]
+
+	"Remove old sign.
+	if bufexists(bookmark["file"])
+		call sign_unplace("bmb", {'buffer' : bufnr(bookmark["file"]), 
+					   \'id' : bookmark["id"] + 1})
+	endif	
+
+
+	let cp = getcurpos()
+
+	let line = cp[1]
+	let string = getline(line) 
+
+	"Change line, string, and file
+	let bookmark["line"] 	= line
+	let bookmark["string"] 	= string
+	let bookmark["file"] 	= @%
+
+	"Place a new sign
+	call sign_place(bookmark["id"] + 1, "bmb", "bmbSign", bookmark["file"], {'lnum' : bookmark["line"]})
+	echom "Set line: " . line . " for bookmark: " . bookmark["id"]
+
+endfunction
+
+
+function! s:BMB_applyMoveBookmarkInBook()
+	"Apply the operation moveBookmarkInBook
+	"That is: move the bookmark to another dir
+
+	"First check if current file is the bmb
+	if &filetype != "bmb"
+		echoe "Can't move bookmark if not in bmb file"	
+		return
+	endif
+
+	"Check if current line is a dir	
+	let dir = s:BMB_getDirInBook()		
+
+	if type(dir) != 4
+		echoe "Not on dir"	
+		return
+	endif
+
+	let startpos = getcurpos()
+
+	let bookmark = g:BMB_pendingOpData["bookmark"]
+
+	let fromDir = g:BMB_pendingOpData["fromDir"]
+
+	if fromDir != dir
+		"Only move if different dir to move to... yes
+		"Also, if dir already exists, it is only a
+		"removal. Is this an error case?
+
+		let indexToRemove = index(bookmark["dirIdList"], fromDir["id"]) 
+		
+		call remove(bookmark["dirIdList"], indexToRemove)
+
+		let bookmarkIndexToRemove = index(fromDir["bookmarkIdList"], bookmark["id"])
+
+		call remove(fromDir["bookmarkIdList"], bookmarkIndexToRemove)
+
+		if index(bookmark["dirIdList"], dir["id"]) == -1
+			"Only add the bookmark to the new dir,
+			"if it isn't already there. Is this a
+			"error case?
+			call add(bookmark["dirIdList"], dir["id"])
+			call add(dir["bookmarkIdList"], bookmark["id"]) 
+		endif
+
+		"Rerender the shit
+		call s:BMB_render() 
+
+		"go back to where we were
+		call setpos(".", startpos)
+	endif
 
 endfunction
 
@@ -826,75 +931,10 @@ function! BMB_applyPendingOp()
 		let op = g:BMB_pendingOpData["op"] 
 
 		if op == "changeBookmark"
-			"TODO: move into function
-			if &filetype == "bmb"
-				echoe "cannot set a bookmark to be in the book :("
-				return
-			endif
-
-			let bookmark = g:BMB_pendingOpData["bookmark"]
-
-			let cp = getcurpos()
-
-			let line = cp[1]
-			let string = getline(line) 
-
-			"Change line, string, and file
-			let bookmark["line"] 	= line
-			let bookmark["string"] 	= string
-			let bookmark["file"] 	= @%
-
-			echom "Set line: " . line . " for bookmark: " . bookmark["id"]
-
+			call s:BMB_applyChangeBookmark()
+	
 		elseif op == "moveBookmarkInBook"
-			"TODO: move into function
-			"First check if current file is the bmb
-			if &filetype != "bmb"
-				echoe "Can't move bookmark if not in bmb file"	
-				return
-			endif
-
-			"Check if current line is a dir	
-			let dir = s:BMB_getDirInBook()		
-
-			if type(dir) != 4
-				echoe "Not on dir"	
-				return
-			endif
-
-			let startpos = getcurpos()
-
-			let bookmark = g:BMB_pendingOpData["bookmark"]
-
-			let fromDir = g:BMB_pendingOpData["fromDir"]
-
-			if fromDir != dir
-				"Only move if different dir to move to... yes
-				"Also, if dir already exists, it is only a
-				"removal. Is this an error case?
-		
-				let indexToRemove = index(bookmark["dirIdList"], fromDir["id"]) 
-				
-				call remove(bookmark["dirIdList"], indexToRemove)
-
-				let bookmarkIndexToRemove = index(fromDir["bookmarkIdList"], bookmark["id"])
-
-				call remove(fromDir["bookmarkIdList"], bookmarkIndexToRemove)
-
-				if index(bookmark["dirIdList"], dir["id"]) == -1
-					"Only add the bookmark to the new dir,
-					"if it isn't already there. Is this a
-					"error case?
-					call add(bookmark["dirIdList"], dir["id"])
-					call add(dir["bookmarkIdList"], bookmark["id"]) 
-				endif
-
-				"Rerender the shit
-				call s:BMB_render() 
-
-				"go back to where we were
-				call setpos(".", startpos)
-			endif
+			call s:BMB_applyMoveBookmarkInBook()
 
 		elseif op == "duplicateBookmark"
 			call BMB_applyDuplicateBookmark()
@@ -913,6 +953,12 @@ endfunction
 
 
 function! BMB_bufEnter()
+	"Called every time we enter a buffer
+	"I think it is this one that should determine to render, if we are
+	"entering bmb-buffer. Needed for ctrl+o jumps for example.
+	"
+	"Or if not bmb-file: to place signs if any bookmark points to a valid line within this
+	"buffer (file)
 	if has_key(g:BMB_bufferDict, string(bufnr()))
 		call s:BMB_render()
 
@@ -921,6 +967,33 @@ function! BMB_bufEnter()
 			"If there is a pending operation, set a mapping for it
 			nnoremap <leader>bmba :call BMB_applyPendingOp()<CR>
 		endif
+
+		"TODO: check every bookmark for any that points to this file.
+		"It is retarded, but lets brute force it first.
+		"It seems like signs can be placed in init instead of when
+		"opening buffer also...
+
+		if type(g:BMB_bookMarkBook) == 4
+			"Create the sign
+			sign define bmbSign text=B> texthl=Search
+
+			let fileName = @%
+
+			let startPos = getcurpos()
+
+			execute "normal! GG"
+
+			let lastLine = getcurpos()[1]
+
+			call setpos(".", startPos)
+
+			for bookmark in values(g:BMB_bookMarkBook["bookmarkDict"])
+				if fileName == bookmark["file"]
+					call sign_place(bookmark["id"] + 1, "bmb", "bmbSign", fileName, {'lnum' : bookmark["line"]})
+				endif		
+			endfor
+		endif
+
 	endif	
 endfunction
 
