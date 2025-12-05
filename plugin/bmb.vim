@@ -316,11 +316,18 @@ function! s:BMB_renderDir(dir, startLine, depth)
 	"TODO: must save the line numbers and such, in order to open.
 	"How to handle closing and opening? that's a future problem
 	
+	let renderSubElements = has_key(a:dir,"rendered") && a:dir["rendered"]
+
+	
 	let g:BMB_renderLineDepth[string(a:startLine)] = a:depth
 	
 	let lineNumber = a:startLine
 
-	let dirSpecifierString = "[d] -"
+	let dirSpecifierString = "[>] -"
+
+	if renderSubElements
+		let dirSpecifierString = "[v] -"
+	endif
 
 	let indent = repeat("  ", a:depth)
 
@@ -332,7 +339,7 @@ function! s:BMB_renderDir(dir, startLine, depth)
 	
 	let lineNumber += 1
 
-	if !has_key(a:dir,"rendered") || !a:dir["rendered"]
+	if !renderSubElements
 		"Do not render the bookmarks for this dir if not rendered	
 		return lineNumber
 	end
@@ -536,12 +543,14 @@ function! BMB_gotoParentDirInBook()
 endfunction
 
 
-function! BMB_moveBookmarkInBook()
+function! BMB_moveInBook()
 	"Starts operation to move bookmark in book	
 	"Is applied with BMB_applyPendingOp
 	"TODO: add ability to move dir also through this
 	
 	let bookmark = s:BMB_getBookmarkInBook()
+
+	let dir = s:BMB_getDirInBook()
 
 	let cp = getcurpos()		
 
@@ -575,6 +584,16 @@ function! BMB_moveBookmarkInBook()
 		let g:BMB_pendingOpData = {"op":"moveBookmarkInBook", "bookmark":bookmark, "fromDir":dir}
 
 		call setpos(".", startpos)
+
+	elseif type(dir) == 4
+		call BMB_gotoParentDirInBook()
+
+		let parentDir = s:BMB_getDirInBook() 
+
+		let g:BMB_pendingOpData = {"op":"moveDirInBook", "dirToMove":dir, "parentDir":parentDir}
+
+		call setpos(".", startpos)
+
 	endif
 	
 endfunction
@@ -623,8 +642,8 @@ function! BMB_startPendingOp(op)
 	if a:op == "changePosInBook"
 		call BMB_changePosInBook()
 
-	elseif a:op == "moveBookmarkInBook"
-		call BMB_moveBookmarkInBook()
+	elseif a:op == "moveInBook"
+		call BMB_moveInBook()
 
 	elseif a:op == "removeBookmarkInBook"
 		call BMB_removeBookmarkInBook()
@@ -661,7 +680,7 @@ function! s:BMB_render()
 		nnoremap <buffer> i    :call BMB_changeInfoInBook()<CR>
 
 		nnoremap <buffer> c    :call BMB_startPendingOp("changePosInBook")<CR>
-		nnoremap <buffer> m    :call BMB_startPendingOp("moveBookmarkInBook")<CR>
+		nnoremap <buffer> m    :call BMB_startPendingOp("moveInBook")<CR>
 		nnoremap <buffer> r    :call BMB_startPendingOp("removeBookmarkInBook")<CR>
 		nnoremap <buffer> d    :call BMB_startPendingOp("duplicateBookmarkInBook")<CR>
 		nnoremap <buffer> ad   :call BMB_startPendingOp("addDirInBook")<CR>
@@ -678,7 +697,8 @@ function! s:BMB_render()
 		autocmd BufEnter * :call BMB_bufEnter() 
 		
 		"Some syntax :) I guess this should be in syntax.vim later
-		syntax match BMB_DIR '\[d\]'    
+		syntax match BMB_DIR '\[v\]'    
+		syntax match BMB_DIR '\[>\]'    
 		highlight BMB_DIR cterm=bold 
 	augroup END
 
@@ -732,12 +752,46 @@ function! BMB_applyDuplicateBookmark()
 endfunction
 
 
+function! BMB_applyMoveDirInBook()
+	"Apply the operation to move a dir wihtin the book
+
+	let dirToMove = g:BMB_pendingOpData["dirToMove"]
+
+	let parentDir = g:BMB_pendingOpData["parentDir"]
+	
+	let toDir = s:BMB_getDirInBook()
+
+	if type(toDir) == 4
+		"We are on a dir
+		if toDir != dirToMove && toDir != parentDir 
+			"The dir we are on are not the dir we are trying to
+			"move, or the parent of the dir to move.
+			let indexToRemove = index(parentDir["dirIdList"], dirToMove["id"])
+
+			call remove(parentDir["dirIdList"], indexToRemove)
+
+			call add(toDir["dirIdList"], dirToMove["id"])
+
+			let cp = getcurpos()
+
+			call s:BMB_render()
+
+			call setpos(".", cp)
+		endif 		
+	endif
+	
+
+
+endfunction
+
+
 function! BMB_applyPendingOp()
 	"Apply a pending operation in BMB_pendingOpData
 	if g:BMB_pendingOpData["op"] != v:none
 		let op = g:BMB_pendingOpData["op"] 
 
 		if op == "changeBookmark"
+			"TODO: move into function
 			if &filetype == "bmb"
 				echoe "cannot set a bookmark to be in the book :("
 				return
@@ -758,6 +812,7 @@ function! BMB_applyPendingOp()
 			echom "Set line: " . line . " for bookmark: " . bookmark["id"]
 
 		elseif op == "moveBookmarkInBook"
+			"TODO: move into function
 			"First check if current file is the bmb
 			if &filetype != "bmb"
 				echoe "Can't move bookmark if not in bmb file"	
@@ -808,6 +863,9 @@ function! BMB_applyPendingOp()
 
 		elseif op == "duplicateBookmark"
 			call BMB_applyDuplicateBookmark()
+
+		elseif op == "moveDirInBook"
+			call BMB_applyMoveDirInBook()
 		
 		else
 			echoe "ERROR: unknown op: " . op
