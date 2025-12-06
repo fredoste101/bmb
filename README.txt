@@ -43,12 +43,6 @@ How to add directory to directory?
 
 --- TODO ---
 
-add signs where bookmarks are
-	Change info within the file
-
-	Move bookmark within the file
-
-
 add bookmark outside of book
 	How to handle choice of parent? some sort of auto-complete?
 	Open book and choose maybe. That is nice :)
@@ -70,4 +64,14 @@ Get a little popup with preview of bookmark in book
 Well. removing bookmark should be:
 	Per dir, and also globally, but different functionality
 	AND be a bit more difficult. a confirm box maybe?
+
+When buffer is saved, update signs. NOT BEFORE to not lag the shit out of things.
+
+
+There is a lot of cleanup needed me thinks...
+	popup when changing bookmark is in wrong place
+
+	Keep info when editing info
+
+	names for bookmarks?
 	

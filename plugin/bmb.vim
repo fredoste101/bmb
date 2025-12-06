@@ -18,6 +18,8 @@ let s:BMB_state = 0
 let g:BMB_pendingOpData = {"op":v:none}
 
 "The actual bookmark book
+
+
 let g:BMB_bookMarkBook = v:none
 
 "The rendering depth-dict
@@ -115,6 +117,7 @@ function! BMB_init(bookMarkFile)
 	"Initialize the bookmark-book :)
 	"With an existing one given by bookMarkFile
 	call sign_unplace("bmb")
+	sign define bmbSign text=B> texthl=Search
 
 	let g:BMB_pendingOpData = {"op":v:none}
 
@@ -298,16 +301,9 @@ function! BMB_removeInBook()
 endfunction
 
 
-function! BMB_moveDir(id, newParent)
-	"move directory into new parent-directory
-
-
-endfunction
-
-
 function! BMB_gotoBookmark(bookmarkId)
 	"Jump to the given bookmarkId 
-	echo "gotoBookmark"
+	"echo "gotoBookmark"
 	if s:BMB_state == 0
 		echoe "bmb must be initialized first"
 		return	
@@ -952,6 +948,102 @@ function! BMB_applyPendingOp()
 endfunction
 
 
+function! BMB_addSignsToBuffer()
+
+	let fileName = @%
+
+	let startPos = getcurpos()
+
+	execute "normal! GG"
+
+	let lastLine = getcurpos()[1]
+
+	call setpos(".", startPos)
+
+	for bookmark in values(g:BMB_bookMarkBook["bookmarkDict"])
+		if fileName == bookmark["file"]
+			call sign_place(bookmark["id"] + 1, "bmb", "bmbSign", fileName, {'lnum' : bookmark["line"]})
+		endif		
+	endfor
+
+endfunction
+
+
+function! s:BMB_getBookmarkListForBuffer(bufferName)
+	"Return a list of all bookmarks in the current buffer
+	"
+	let bookmarkList = []
+
+	for bookmark in values(g:BMB_bookMarkBook["bookmarkDict"])
+		if bookmark["file"] == a:bufferName
+			call add(bookmarkList, bookmark)
+		endif
+	endfor
+
+	return bookmarkList
+
+endfunction
+
+
+function! s:BMB_getBookmarkOnCurrentLine()
+	"Get the bookmark on current line if any.
+	"Returns the bookmark, or if none, returns v:none 	
+	
+	let fileName = @%
+
+	let cp = getcurpos()
+
+	let bookmarkList = s:BMB_getBookmarkListForBuffer(fileName)
+
+	let bookmarkOnCurrentLine = v:none
+
+	for bookmark in bookmarkList
+		if bookmark["line"] == cp[1]
+			let bookmarkOnCurrentLine = bookmark	
+			break
+		endif	
+	endfor
+
+	return bookmarkOnCurrentLine
+	
+
+endfunction
+
+
+function! BMB_editInfoInPlace()
+	"Edit info within the buffer that the bookmark points to
+	let fileName = @%
+	
+	let bookmark = s:BMB_getBookmarkOnCurrentLine()
+
+	if type(bookmark) == 4 
+		
+		call inputsave()
+
+		let info = input("info: ")
+
+		call inputrestore()
+
+		let bookmark["info"] = info	
+	endif
+endfunction
+
+
+function! BMB_moveInPlace()
+	"start moving bookmark in buffer that bookmark is in
+	let fileName = @%
+	
+	let bookmark = s:BMB_getBookmarkOnCurrentLine()
+
+	if type(bookmark) == 4 
+		
+		call popup_notification("Change bookmark: " . bookmark["id"], 
+					\{"title":"c", "pos":"topright"})	
+		let g:BMB_pendingOpData = {"op":"changeBookmark", "bookmark":bookmark} 
+	endif
+endfunction
+
+
 function! BMB_bufEnter()
 	"Called every time we enter a buffer
 	"I think it is this one that should determine to render, if we are
@@ -968,30 +1060,12 @@ function! BMB_bufEnter()
 			nnoremap <leader>bmba :call BMB_applyPendingOp()<CR>
 		endif
 
-		"TODO: check every bookmark for any that points to this file.
-		"It is retarded, but lets brute force it first.
-		"It seems like signs can be placed in init instead of when
-		"opening buffer also...
 
 		if type(g:BMB_bookMarkBook) == 4
-			"Create the sign
-			sign define bmbSign text=B> texthl=Search
+			call BMB_addSignsToBuffer()
 
-			let fileName = @%
-
-			let startPos = getcurpos()
-
-			execute "normal! GG"
-
-			let lastLine = getcurpos()[1]
-
-			call setpos(".", startPos)
-
-			for bookmark in values(g:BMB_bookMarkBook["bookmarkDict"])
-				if fileName == bookmark["file"]
-					call sign_place(bookmark["id"] + 1, "bmb", "bmbSign", fileName, {'lnum' : bookmark["line"]})
-				endif		
-			endfor
+			nnoremap<buffer> <leader>bei :call BMB_editInfoInPlace()<CR>
+			nnoremap<buffer> <leader>bm :call BMB_moveInPlace()<CR>
 		endif
 
 	endif	
