@@ -43,12 +43,6 @@ How to add directory to directory?
 
 --- TODO ---
 
-add bookmark outside of book
-	How to handle choice of parent? some sort of auto-complete?
-	Open book and choose maybe. That is nice :)
-
-
-
 Killer feature: autochange bookmarks
 	Change bookmarks depending on line-content if file changes
 	
@@ -57,15 +51,19 @@ Killer feature: autochange bookmarks
 	
 		File no longer exists
 
+Goto bookmark in bmb from file. Which one? first one we find maybe :)
 
 Get a little popup with preview of bookmark in book
+	File and line and surroundings
 
 
 Well. removing bookmark should be:
 	Per dir, and also globally, but different functionality
 	AND be a bit more difficult. a confirm box maybe?
 
-When buffer is saved, update signs. NOT BEFORE to not lag the shit out of things.
+
+When buffer is saved, update bookmark positions (with autochange if needed).
+	update signs. NOT BEFORE to not lag the shit out of things.
 
 
 There is a lot of cleanup needed me thinks...
@@ -75,3 +73,6 @@ There is a lot of cleanup needed me thinks...
 
 	names for bookmarks?
 	
+	I don't like that the jump-list is f-ed up after some operations...
+
+

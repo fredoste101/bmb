@@ -119,6 +119,9 @@ function! BMB_init(bookMarkFile)
 	call sign_unplace("bmb")
 	sign define bmbSign text=B> texthl=Search
 
+	"TODO: place signs in all open buffers that have signs in them
+	"TODO: killer feature applies here!
+
 	let g:BMB_pendingOpData = {"op":v:none}
 
 	let lines = readfile(a:bookMarkFile)
@@ -830,6 +833,19 @@ function! BMB_applyMoveDirInBook()
 endfunction
 
 
+function! s:BMB_getBookmarkByFileAndLine(file, line)
+
+	for bookmark in values(g:BMB_bookMarkBook["bookmarkDict"])
+		if bookmark["file"] == a:file and bookmark["line"] == a:line
+			return bookmark
+		endif
+	endfor
+
+	return v:none
+
+endfunction
+
+
 function! s:BMB_applyChangeBookmark()
 	"Apply the change bookmark operation.
 	"I.E CHANGE the FILE and LINE of given bookmark.
@@ -838,6 +854,14 @@ function! s:BMB_applyChangeBookmark()
 		echoe "cannot set a bookmark to be in the book :("
 		return
 	endif
+
+	let existingBookmark = s:BMB_getBookmarkOnCurrentLine()
+
+	if type(existingBookmark) == 4
+		echoe "Bookmark already exists at this position"
+		return
+	endif
+	
 
 
 	let bookmark = g:BMB_pendingOpData["bookmark"]
@@ -921,6 +945,59 @@ function! s:BMB_applyMoveBookmarkInBook()
 endfunction
 
 
+function! BMB_applyAddBookmark()
+	
+	if &filetype != "bmb"
+		echoe "Can't add bookmark if not in bmb file"	
+		return
+	endif
+
+	echom "aigh gonna add this ucka"
+
+	let dir = s:BMB_getDirInBook()
+
+	if type(dir) != 4
+		call BMB_gotoParentDirInBook()
+		let dir = s:BMB_getDirInBook()
+	endif
+
+	if type(dir) == 4
+
+		let file = g:BMB_pendingOpData["file"]
+		let line = g:BMB_pendingOpData["line"]
+		let string = g:BMB_pendingOpData["string"]
+		let nextBookmarkId = g:BMB_bookMarkBook["nextBookmarkId"]
+
+		let bookmark = 	{
+					\"id": nextBookmarkId,
+					\"file":file,
+					\"line":line,
+					\"column":0,
+					\"name":"",
+					\"info":"",
+					\"dirIdList":[dir["id"]],
+					\"string":string
+				\} 
+
+		let key = string(nextBookmarkId)
+
+		"Link together the new bookmark with the dir it ends up in
+		let g:BMB_bookMarkBook["bookmarkDict"][key] = bookmark
+
+		call add(g:BMB_bookMarkBook["dirDict"][string(dir["id"])]["bookmarkIdList"], 
+			 \bookmark["id"])
+
+		"Increment the bookmarks
+		let g:BMB_bookMarkBook["nextBookmarkId"] += 1
+
+		call s:BMB_render()
+	endif
+
+	
+
+endfunction
+
+
 function! BMB_applyPendingOp()
 	"Apply a pending operation in BMB_pendingOpData
 	if g:BMB_pendingOpData["op"] != v:none
@@ -937,6 +1014,9 @@ function! BMB_applyPendingOp()
 
 		elseif op == "moveDirInBook"
 			call BMB_applyMoveDirInBook()
+
+		elseif op == "addBookmark"
+			call BMB_applyAddBookmark()
 		
 		else
 			echoe "ERROR: unknown op: " . op
@@ -1031,8 +1111,6 @@ endfunction
 
 function! BMB_moveInPlace()
 	"start moving bookmark in buffer that bookmark is in
-	let fileName = @%
-	
 	let bookmark = s:BMB_getBookmarkOnCurrentLine()
 
 	if type(bookmark) == 4 
@@ -1044,11 +1122,36 @@ function! BMB_moveInPlace()
 endfunction
 
 
+function! BMB_addBookmarkInPlace()
+	"Start adding bookmark in the current buffer and line
+
+	let bookmark = s:BMB_getBookmarkOnCurrentLine()
+
+	"Only allow new bookmark if there is none here already...
+	"To be honest I haven't really thought about this scenario,
+	"but in general it shouldn't be allowed to have two bookmarks
+	"pointing to same place. It is unecessary IMHO.
+	if type(bookmark) != 4
+		let line = getcurpos()[1]
+		let g:BMB_pendingOpData = {"op":"addBookmark", 
+					  \"file":@%, 
+					  \"line":line, 
+					  \"string":getline(line)} 
+		call BMB_openBuffer()
+
+	else
+		echoe "Bookmark already exists in current position"
+
+	endif
+
+endfunction
+
+
 function! BMB_bufEnter()
 	"Called every time we enter a buffer
 	"I think it is this one that should determine to render, if we are
 	"entering bmb-buffer. Needed for ctrl+o jumps for example.
-	"
+	
 	"Or if not bmb-file: to place signs if any bookmark points to a valid line within this
 	"buffer (file)
 	if has_key(g:BMB_bufferDict, string(bufnr()))
@@ -1060,12 +1163,12 @@ function! BMB_bufEnter()
 			nnoremap <leader>bmba :call BMB_applyPendingOp()<CR>
 		endif
 
-
 		if type(g:BMB_bookMarkBook) == 4
 			call BMB_addSignsToBuffer()
 
 			nnoremap<buffer> <leader>bei :call BMB_editInfoInPlace()<CR>
 			nnoremap<buffer> <leader>bm :call BMB_moveInPlace()<CR>
+			nnoremap<buffer> <leader>ba :call BMB_addBookmarkInPlace()<CR>
 		endif
 
 	endif	
